@@ -1,0 +1,61 @@
+name: pharmacy_system
+description: "سیستەمی بەڕێوەبردنی دەرمانخانەی زەیتون - Zaiton Pharmacy Management System"
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_localizations:     # ✅ زیادکراو بۆ پشتگیری جیهانی RTL لەگەڵ DatePicker
+    sdk: flutter
+  
+  # === داتابەیس و لۆکاڵ ستۆرج ===
+  sqflite: ^2.3.3
+  sqflite_common_ffi: ^2.3.3
+  sqlite3_flutter_libs: ^0.5.18
+  shared_preferences: ^2.2.2
+  path: ^1.9.0
+  path_provider: ^2.1.3
+  
+  # === ڕووکار و دیزاین ===
+  fl_chart: ^0.68.0         # ✅ گۆڕدرا بۆ وەشانی جێگیر و بێ کێشە
+  intl: ^0.20.2
+  
+  # === چاپکردن و وەسڵ ===
+  pdf: ^3.11.0
+  printing: ^5.13.1
+  screenshot: ^3.0.0
+  
+  # === فایل و پاشەکەوتکردن ===
+  excel: ^4.0.3
+  share_plus: ^9.0.0
+  file_picker: ^8.0.3
+  
+  # === سکیوریتی و ئامێر ===
+  crypto: ^3.0.3
+  device_info_plus: ^10.1.0
+  url_launcher: ^6.2.5
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^3.0.0
+  flutter_launcher_icons: ^0.13.1
+
+flutter:
+  uses-material-design: true
+  fonts:
+    - family: MyKurdishFont
+      fonts:
+        - asset: assets/fonts/KurdishFont.ttf
+
+flutter_launcher_icons:
+  android: "launcher_icon"
+  image_path: "assets/icon/app_icon.png"
+  windows:
+    generate: true
+    image_path: "assets/icon/app_icon.png"
+    icon_size: 256
