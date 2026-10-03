@@ -362,7 +362,7 @@ class _ReturnsScreenState extends State<ReturnsScreen> {
                         String compName = b['company'] ?? '';
                         if (compName.isNotEmpty) {
                           var debts = await txn.query('supplier_debts',
-                              where: 'companyName = ? AND remainingAmount > 0',
+                              where: 'LOWER(companyName) = LOWER(?) AND remainingAmount > 0',
                               whereArgs: [compName]);
                           if (debts.isNotEmpty) {
                             double remaining =
@@ -424,13 +424,13 @@ class _ReturnsScreenState extends State<ReturnsScreen> {
                           if (customerPhone.isNotEmpty) {
                             debtList = await txn.query('debts',
                                 where:
-                                    'customerName = ? AND phone = ? AND remainingAmount > 0',
+                                    'LOWER(customerName) = LOWER(?) AND phone = ? AND remainingAmount > 0',
                                 whereArgs: [customerName, customerPhone],
                                 limit: 1);
                           } else {
                             debtList = await txn.query('debts',
                                 where:
-                                    'customerName = ? AND remainingAmount > 0',
+                                    'LOWER(customerName) = LOWER(?) AND remainingAmount > 0',
                                 whereArgs: [customerName],
                                 limit: 1);
                           }

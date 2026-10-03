@@ -555,8 +555,8 @@ class _AddMedicineScreenState extends State<AddMedicineScreen> {
 
           // خستنە سەر قەرزی کۆمپانیا
           if (remainingDebt > 0) {
-            final existingDebt = await txn.query('supplier_debts',
-                where: 'companyName = ? AND remainingAmount > 0',
+           final existingDebt = await txn.query('supplier_debts',
+                where: 'LOWER(companyName) = LOWER(?) AND remainingAmount > 0',
                 whereArgs: [companyName],
                 limit: 1);
 
@@ -698,8 +698,12 @@ class _AddMedicineScreenState extends State<AddMedicineScreen> {
         ),
       );
 
-      if (confirm != true) return;
+      if (confirm != true) {
+        senderCtrl.dispose(); // 👈 پاککردنەوە ئەگەر پاشگەز بووەوە
+        return;
+      }
       String senderName = senderCtrl.text.trim();
+      senderCtrl.dispose(); // 👈 پاککردنەوە دوای وەرگرتنی ناوەکە
 
       // ٢. هەڵبژاردنی فایلەکە
       FilePickerResult? result = await FilePicker.platform.pickFiles(
@@ -799,7 +803,7 @@ class _AddMedicineScreenState extends State<AddMedicineScreen> {
           });
 
           final existingDebt = await txn.query('supplier_debts',
-              where: 'companyName = ? AND remainingAmount > 0',
+              where: 'LOWER(companyName) = LOWER(?) AND remainingAmount > 0',
               whereArgs: [senderName],
               limit: 1);
 
