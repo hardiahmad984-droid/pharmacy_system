@@ -194,11 +194,9 @@ class _AddMedicineScreenState extends State<AddMedicineScreen> {
                             // ڕێکەوتی بەسەرچوون
                             InkWell(
                               onTap: () async {
-                                DateTime? p = await showDatePicker(
-                                    context: context,
-                                    initialDate: DateTime.now(),
-                                    firstDate: DateTime(2000),
-                                    lastDate: DateTime(2100));
+                                // 👈 بانگکردنی فەنکشنە خێراکەی خۆمان
+                                DateTime? p = await _pickFastExpiryDate(
+                                    context, DateTime.tryParse(expiry ?? ""));
                                 if (p != null) {
                                   setState(() => expiry =
                                       DateFormat('yyyy-MM-dd').format(p));
@@ -555,7 +553,7 @@ class _AddMedicineScreenState extends State<AddMedicineScreen> {
 
           // خستنە سەر قەرزی کۆمپانیا
           if (remainingDebt > 0) {
-           final existingDebt = await txn.query('supplier_debts',
+            final existingDebt = await txn.query('supplier_debts',
                 where: 'LOWER(companyName) = LOWER(?) AND remainingAmount > 0',
                 whereArgs: [companyName],
                 limit: 1);
@@ -851,5 +849,107 @@ class _AddMedicineScreenState extends State<AddMedicineScreen> {
             backgroundColor: Colors.red));
       }
     }
+  }
+
+// =========================================================================
+  // ✅ ساڵنامەی تایبەت و خێرا بۆ دەرمانخانە
+  // =========================================================================
+  Future<DateTime?> _pickFastExpiryDate(
+      BuildContext context, DateTime? initial) async {
+    int y = initial?.year ?? DateTime.now().year;
+    int m = initial?.month ?? DateTime.now().month;
+    int d = initial?.day ?? 1; // ڕۆژ هەمیشە با سەرەتا ١ بێت بۆ ئاسانکاری
+
+    return await showDialog<DateTime>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setSt) => Directionality(
+          textDirection: ui.TextDirection.rtl,
+          child: AlertDialog(
+            shape:
+                RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
+            title: const Center(
+                child: Text("دیاریکردنی بەسەرچوون",
+                    style: TextStyle(
+                        color: Colors.teal, fontWeight: FontWeight.bold))),
+            content: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+              children: [
+                // هەڵبژاردنی ساڵ
+                Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Text("ساڵ", style: TextStyle(color: Colors.grey)),
+                    DropdownButton<int>(
+                      value: y,
+                      items: List.generate(15, (i) => DateTime.now().year + i)
+                          .map((year) => DropdownMenuItem(
+                              value: year,
+                              child: Text("$year",
+                                  style: const TextStyle(
+                                      fontSize: 18,
+                                      fontWeight: FontWeight.bold))))
+                          .toList(),
+                      onChanged: (v) => setSt(() => y = v!),
+                    ),
+                  ],
+                ),
+                // هەڵبژاردنی مانگ
+                Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Text("مانگ", style: TextStyle(color: Colors.grey)),
+                    DropdownButton<int>(
+                      value: m,
+                      items: List.generate(12, (i) => i + 1)
+                          .map((month) => DropdownMenuItem(
+                              value: month,
+                              child: Text(month.toString().padLeft(2, '0'),
+                                  style: const TextStyle(
+                                      fontSize: 18,
+                                      fontWeight: FontWeight.bold))))
+                          .toList(),
+                      onChanged: (v) => setSt(() => m = v!),
+                    ),
+                  ],
+                ),
+                // هەڵبژاردنی ڕۆژ
+                Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Text("ڕۆژ", style: TextStyle(color: Colors.grey)),
+                    DropdownButton<int>(
+                      value: d,
+                      items: List.generate(31, (i) => i + 1)
+                          .map((day) => DropdownMenuItem(
+                              value: day,
+                              child: Text(day.toString().padLeft(2, '0'),
+                                  style: const TextStyle(
+                                      fontSize: 18,
+                                      fontWeight: FontWeight.bold))))
+                          .toList(),
+                      onChanged: (v) => setSt(() => d = v!),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+            actions: [
+              TextButton(
+                  onPressed: () => Navigator.pop(ctx),
+                  child: const Text("پاشگەزبوونەوە",
+                      style: TextStyle(color: Colors.grey))),
+              ElevatedButton(
+                style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.teal,
+                    foregroundColor: Colors.white),
+                onPressed: () => Navigator.pop(ctx, DateTime(y, m, d)),
+                child: const Text("هەڵبژاردن"),
+              )
+            ],
+          ),
+        ),
+      ),
+    );
   }
 }

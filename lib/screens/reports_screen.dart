@@ -1229,33 +1229,45 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
       double finalTotal = roundToNearest250(totalSaleAmount + extra - discount);
       if (finalTotal < 0) finalTotal = 0;
 
+      // ٣. گەڕاندنەوەی دەرمانەکان بۆ ناو کۆگا بە سیستەمی FEFO
+      // ٣. گەڕاندنەوەی دەرمانەکان بۆ ناو کۆگا بە سیستەمی FEFO
       for (var r in rows) {
-        bool isNormalSale = r['unitType'] != "فەل" &&
-            r['unitType'] != "کۆبەند" &&
-            !r['medName'].toString().contains('(تەلفیات)') &&
-            !r['medName'].toString().contains('(گەڕاوە)') &&
-            (r['medCompany']?.toString().isNotEmpty ?? false) &&
-            (r['qtySoldStrips'] as int?)! > 0;
+        String uType = r['unitType']?.toString() ?? '';
+        String mName = r['medName']?.toString() ?? '';
+        int qtySold = r['qtySoldStrips'] as int? ?? 0;
+
+        bool isNormalSale = uType != "فەل" &&
+            uType != "کۆبەند" &&
+            !mName.contains('(تەلفیات)') &&
+            !mName.contains('(گەڕاوە)') &&
+            qtySold > 0;
 
         if (isNormalSale) {
-          String barcode = '';
+          // هەنگاوی یەکەم: دۆزینەوەی بارکۆد تەنها بە ناو (بەبێ گوێدانە بۆشایی و کۆمپانیا)
           final medInfo = await db.query('medicines',
-              where: 'name = ? AND company = ?',
-              whereArgs: [r['medName'], r['medCompany']],
-              limit: 1);
-          if (medInfo.isNotEmpty) {
-            barcode = medInfo.first['barcode'].toString();
-          }
+              where: 'TRIM(name) = TRIM(?)', whereArgs: [mName], limit: 1);
 
-          if (barcode.isNotEmpty) {
-            int qtyToReturn = r['qtySoldStrips'] as int;
-            await db.rawUpdate(
-                'UPDATE medicines SET totalStrips = totalStrips + ? WHERE id = (SELECT id FROM medicines WHERE barcode = ? ORDER BY expiryDate ASC LIMIT 1)',
-                [qtyToReturn, barcode]);
+          if (medInfo.isNotEmpty) {
+            String barcode = medInfo.first['barcode'].toString();
+
+            // هەنگاوی دووەم: دۆزینەوەی وەجبەی کۆن بۆ گەڕاندنەوەی حەبەکان (بە لۆجیکی فڵەتەر)
+            final batches = await db.query('medicines',
+                where: 'barcode = ?',
+                whereArgs: [barcode],
+                orderBy: 'expiryDate ASC',
+                limit: 1);
+
+            if (batches.isNotEmpty) {
+              int batchId = batches.first['id'] as int;
+
+              // هەنگاوی سێیەم: زیادکردنەوەی بڕەکە بۆ کۆگا
+              await db.rawUpdate(
+                  'UPDATE medicines SET totalStrips = totalStrips + ? WHERE id = ?',
+                  [qtySold, batchId]);
+            }
           }
         }
       }
-
       String voidDate = DateFormat('yyyy-MM-dd HH:mm').format(DateTime.now());
 
       if (saleType == 'نەقد') {
