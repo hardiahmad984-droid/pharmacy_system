@@ -474,7 +474,8 @@ class _SalesScreenState extends State<SalesScreen> {
                 limit: 1);
           } else {
             existingDebt = await txn.query('debts',
-                where: 'LOWER(customerName) = LOWER(?) AND phone = ? AND remainingAmount > 0',
+                where:
+                    'LOWER(customerName) = LOWER(?) AND phone = ? AND remainingAmount > 0',
                 whereArgs: [currentCustomerName, currentPhone],
                 limit: 1);
           }
@@ -699,7 +700,6 @@ class _SalesScreenState extends State<SalesScreen> {
     }
   }
 
-  // یارمەتیدەر بۆ دروستکردنی دوگمەکانی دۆخی فرۆشتن
   Widget _buildModeRadio(String mode) {
     bool isSelected = selectedSellMode == mode;
     return InkWell(
@@ -708,19 +708,23 @@ class _SalesScreenState extends State<SalesScreen> {
         searchFocusNode.requestFocus();
       },
       child: Container(
-        margin: const EdgeInsets.symmetric(horizontal: 4),
-        padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 8),
+        margin: const EdgeInsets.symmetric(horizontal: 2),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
         decoration: BoxDecoration(
           color: isSelected ? Colors.teal : Colors.transparent,
           borderRadius: BorderRadius.circular(10),
           border: Border.all(
               color: isSelected ? Colors.teal : Colors.grey.shade300),
         ),
-        child: Text(mode,
-            style: TextStyle(
-                color: isSelected ? Colors.white : Colors.black87,
-                fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-                fontSize: 13)),
+        child: FittedBox(
+          // 👈 ئەمە چارەسەری کێشەکەیە
+          fit: BoxFit.scaleDown,
+          child: Text(mode,
+              style: TextStyle(
+                  color: isSelected ? Colors.white : Colors.black87,
+                  fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                  fontSize: 13)),
+        ),
       ),
     );
   }
