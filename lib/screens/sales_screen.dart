@@ -332,13 +332,9 @@ class _SalesScreenState extends State<SalesScreen> {
       } else if (selectedSellMode == "جوملە") {
         if (await _hasEnoughStock(med, med['stripsPerBox'])) {
           double pPrice = (med['purchasePrice'] as num).toDouble();
-          _processAdd(
-              med,
-              "جوملە",
-              med['stripsPerBox'],
-              pPrice, // نرخی فرۆشتن: نرخی ئەسڵی پاکەتەکە
-              pPrice, // ✅ نرخی کڕین: هەمان نرخی ئەسڵی پاکەتەکە بۆ ئەوەی قازانج ببێتە سفر
-              false);
+          // 👈 زیادکردنی roundToNearest250 بۆ نرخی فرۆشتن
+          _processAdd(med, "جوملە", med['stripsPerBox'],
+              roundToNearest250(pPrice), pPrice, false);
         }
       }
     } catch (e) {

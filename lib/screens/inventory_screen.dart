@@ -643,6 +643,7 @@ class _InventoryScreenState extends State<InventoryScreen> {
 
     await showDialog(
         context: context,
+        barrierDismissible: false, // 👈 پاراستنی میمۆری بۆ ئەوەی بە هەڵە دانەخرێت
         builder: (ctx) => StatefulBuilder(
             builder: (ctx, setSt) => Directionality(
                   textDirection: ui.TextDirection.rtl,
@@ -652,112 +653,114 @@ class _InventoryScreenState extends State<InventoryScreen> {
                       child: Column(mainAxisSize: MainAxisSize.min, children: [
                         TextField(
                             controller: nC,
-                            decoration: const InputDecoration(
-                                labelText: "ناوی دەرمان")),
+                            decoration: const InputDecoration(labelText: "ناوی دەرمان")),
                         TextField(
                             controller: cC,
-                            decoration:
-                                const InputDecoration(labelText: "کۆمپانیا")),
+                            decoration: const InputDecoration(labelText: "کۆمپانیا")),
                         TextField(
                             controller: pC,
-                            decoration: const InputDecoration(
-                                labelText: "نرخی کڕینی پاکەت"),
+                            decoration: const InputDecoration(labelText: "نرخی کڕینی پاکەت"),
                             keyboardType: TextInputType.number),
                         TextField(
                             controller: sC,
-                            decoration: const InputDecoration(
-                                labelText: "نرخی فرۆشتنی پاکەت"),
+                            decoration: const InputDecoration(labelText: "نرخی فرۆشتنی پاکەت"),
                             keyboardType: TextInputType.number),
                         TextField(
                             controller: barC,
-                            decoration:
-                                const InputDecoration(labelText: "بارکۆد")),
+                            decoration: const InputDecoration(labelText: "بارکۆد")),
                         TextField(
                             controller: spC,
-                            decoration: const InputDecoration(
-                                labelText: "شیت لە پاکەتدا"),
+                            decoration: const InputDecoration(labelText: "شیت لە پاکەتدا"),
                             keyboardType: TextInputType.number),
                         ListTile(
                             title: Text("بەسەرچوون: $expDate"),
                             leading: const Icon(Icons.calendar_month),
                             onTap: () async {
                               DateTime? p = await showDatePicker(
-                                  context:
-                                      ctx, // ✅ چارەسەر: ctx بەکاربهێنە نەک context [4]
-                                  initialDate: DateTime.tryParse(expDate) ??
-                                      DateTime.now(),
+                                  context: ctx, 
+                                  initialDate: DateTime.tryParse(expDate) ?? DateTime.now(),
                                   firstDate: DateTime(2000),
                                   lastDate: DateTime(2100));
                               if (p != null) {
-                                setSt(() => expDate =
-                                    DateFormat('yyyy-MM-dd').format(p));
+                                setSt(() => expDate = DateFormat('yyyy-MM-dd').format(p));
                               }
                             }),
                       ]),
                     ),
                     actions: [
                       TextButton(
-                          onPressed: () => Navigator.pop(ctx),
+                          onPressed: () {
+                             if (ctx.mounted) Navigator.pop(ctx);
+                          },
                           child: const Text("پاشگەزبوونەوە")),
                       ElevatedButton(
                           onPressed: () async {
-                            // ١. ✅ چارەسەر: پشکنینی ناو بۆ ئەوەی بەتاڵ نەبێت
                             if (nC.text.trim().isEmpty) {
                               ScaffoldMessenger.of(context).showSnackBar(
-                                  const SnackBar(
-                                      content: Text(
-                                          "ناوی دەرمان نابێت بەتاڵ بێت!")));
+                                  const SnackBar(content: Text("ناوی دەرمان نابێت بەتاڵ بێت!")));
                               return;
                             }
 
-                            // ٢. وەرگرتنی نرخەکان و بڕەکان
-                            double purchasePrice =
-                                double.tryParse(pC.text) ?? 0.0;
+                            double purchasePrice = double.tryParse(pC.text) ?? 0.0;
                             double salePrice = double.tryParse(sC.text) ?? 0.0;
 
-                            // 👈 چارەسەری کوشندە: ڕێگری لە نرخی سالب
                             if (purchasePrice < 0 || salePrice < 0) {
                               ScaffoldMessenger.of(context).showSnackBar(
                                   const SnackBar(
-                                      content: Text(
-                                          "نرخی کڕین و فرۆشتن نابێت سالب بن!"),
+                                      content: Text("نرخی کڕین و فرۆشتن نابێت سالب بن!"),
                                       backgroundColor: Colors.red));
                               return;
                             }
 
-                            int stripsPerBox = int.tryParse(spC.text) ?? 1;
-                            if (stripsPerBox <= 0) {
-                              stripsPerBox = 1; // ✅ ڕێگری لە سفر
-                            }
+                            int newStripsPerBox = int.tryParse(spC.text) ?? 1;
+                            if (newStripsPerBox <= 0) newStripsPerBox = 1;
 
+                            // 👈 چارەسەرە زێڕینەکە بۆ پاراستنی بڕی دەرمانەکانی سەر ڕەفەکە
+                            int oldTotalStrips = b['totalStrips'] as int? ?? 0;
+                            int oldStripsPerBox = b['stripsPerBox'] as int? ?? 1;
+                            if (oldStripsPerBox <= 0) oldStripsPerBox = 1;
+
+                            int oldBoxes = oldTotalStrips ~/ oldStripsPerBox;
+                            int oldLooseStrips = oldTotalStrips % oldStripsPerBox;
+
+                            int newTotalStrips = (oldBoxes * newStripsPerBox) + oldLooseStrips;
+
+                            // 👈 بەکارهێنانەوەی SQLite چونکە سیامێد ئۆفلاینە
                             final db = await DatabaseHelper.initDb();
 
-                            // ٣. نوێکردنەوە لە داتابەیس
-                            await db.update(
-                                'medicines',
-                                {
-                                  'name': nC.text.trim(),
-                                  'company': cC.text.trim(),
-                                  'purchasePrice': purchasePrice,
-                                  'price': roundToNearest250(
-                                      salePrice), // ✅ چارەسەر: لێرەدا خڕکردنەوە زیادکرا
-                                  'barcode': barC.text.trim(),
-                                  'stripsPerBox': stripsPerBox,
-                                  'expiryDate': expDate
-                                },
-                                where: 'id = ?',
-                                whereArgs: [b['id']]);
+                            try {
+                              await db.update(
+                                  'medicines',
+                                  {
+                                    'name': nC.text.trim(),
+                                    'company': cC.text.trim(),
+                                    'purchasePrice': purchasePrice,
+                                    'price': roundToNearest250(salePrice),
+                                    'barcode': barC.text.trim(),
+                                    'stripsPerBox': newStripsPerBox,
+                                    'totalStrips': newTotalStrips, // 👈 ئەپدەیتکردنی بڕەکەش لێرەدا
+                                    'expiryDate': expDate
+                                  },
+                                  where: 'id = ?',
+                                  whereArgs: [b['id']]);
 
-                            // ٤. ✅ چارەسەر: پشکنینی mounted پێش داخستنی پەنجەرە
-                            if (!mounted) return;
-                            Navigator.pop(ctx);
-                            load();
+                              if (!mounted) return;
+                              if (ctx.mounted) Navigator.pop(ctx);
+                              load(); // نوێکردنەوەی شاشەکە
+                            } catch (e) {
+                              if (ctx.mounted) {
+                                ScaffoldMessenger.of(ctx).showSnackBar(SnackBar(
+                                  content: Text("هەڵە ڕوویدا: $e"),
+                                  backgroundColor: Colors.red));
+                              }
+                            }
                           },
                           child: const Text("پاشەکەوت")),
                     ],
                   ),
                 )));
-    // ✅ پاککردنەوەی هەموو کۆنتڕۆڵەرەکان بە یەکجار لێرەدا
+                
+    // پاککردنەوەی میمۆری
     nC.dispose();
     cC.dispose();
     pC.dispose();
