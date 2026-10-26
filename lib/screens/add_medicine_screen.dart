@@ -21,6 +21,7 @@ class _AddMedicineScreenState extends State<AddMedicineScreen> {
   final pPriceC = TextEditingController();
   final sPriceC = TextEditingController();
   final boxQtyC = TextEditingController();
+  final extraStripsC = TextEditingController();
   final perBoxC = TextEditingController();
   final barC = TextEditingController();
   final paidC = TextEditingController();
@@ -35,6 +36,7 @@ class _AddMedicineScreenState extends State<AddMedicineScreen> {
     pPriceC.dispose();
     sPriceC.dispose();
     boxQtyC.dispose();
+    extraStripsC.dispose();
     perBoxC.dispose();
     barC.dispose();
     paidC.dispose();
@@ -176,16 +178,20 @@ class _AddMedicineScreenState extends State<AddMedicineScreen> {
                               Expanded(
                                   child: _buildTextField(
                                       boxQtyC,
-                                      "بڕی کڕدراو (پاکەت) *",
+                                      "پاکەتی تەواو *",
                                       Icons.inventory_2_outlined,
                                       isNum: true,
                                       formatters: [EnglishNumberFormatter()])),
-                              const SizedBox(width: 15),
+                              const SizedBox(width: 10),
                               Expanded(
-                                  child: _buildTextField(
-                                      perBoxC,
-                                      "چەند شیتە لە پاکەتێکدا؟ *",
-                                      Icons.grid_view,
+                                  child: _buildTextField(extraStripsC,
+                                      "شیت (فەل)", Icons.extension,
+                                      isNum: true,
+                                      formatters: [EnglishNumberFormatter()])),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                  child: _buildTextField(perBoxC,
+                                      "شیت لە پاکەتێکدا *", Icons.grid_view,
                                       isNum: true,
                                       formatters: [EnglishNumberFormatter()])),
                             ]),
@@ -433,12 +439,26 @@ class _AddMedicineScreenState extends State<AddMedicineScreen> {
     if (per <= 0) per = 1;
 
     int boxes = int.tryParse(boxQtyC.text) ?? 0;
-    if (boxes <= 0) {
+    int extraStrips =
+        int.tryParse(extraStripsC.text) ?? 0; // 👈 وەرگرتنی شیتە زیادەکان
+
+    // ئەگەر هەم پاکەت و هەم شیتەکە سفر یان بەتاڵ بوون
+    if (boxes <= 0 && extraStrips <= 0) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text("بڕی کڕدراو دەبێت لە سفر زیاتر بێت!"),
+          content: Text("تکایە بڕی کڕدراو (پاکەت یان شیت) بە دروستی بنووسە!"),
           backgroundColor: Colors.red));
       return;
     }
+
+    if (boxes < 0 || extraStrips < 0) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text("بڕی کڕدراو نابێت سالب بێت!"),
+          backgroundColor: Colors.red));
+      return;
+    }
+
+    // 👈 ئێستا شیتە زیادەکانیش دەچێتە سەر کۆی گشتی کۆگا
+    int totalNewStrips = (boxes * per) + extraStrips;
 
     if (expiry == null) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
@@ -447,7 +467,6 @@ class _AddMedicineScreenState extends State<AddMedicineScreen> {
       return;
     }
 
-    int totalNewStrips = boxes * per;
     String cleanBarcode = barC.text.trim();
     String cleanName = nameC.text.trim();
     String companyName =
@@ -497,11 +516,14 @@ class _AddMedicineScreenState extends State<AddMedicineScreen> {
           }
 
           await txn.rawUpdate(
-              'UPDATE medicines SET totalStrips = totalStrips + ?, purchasePrice = ?, price = ? WHERE id = ?',
+              'UPDATE medicines SET totalStrips = totalStrips + ?, purchasePrice = ?, price = ?, company = ?, stripsPerBox = ?, name = ? WHERE id = ?',
               [
                 totalNewStrips,
                 inventoryPurchasePrice,
                 roundToNearest250(inventorySalePrice),
+                companyName, // 👈 ئەپدەیتکردنی ناوی کۆمپانیا
+                per, // 👈 ئەپدەیتکردنی شیت بۆ ئەوەی سەرمایە ڕاست دەربچێت
+                cleanName, // 👈 بۆ ئەوەی ئەگەر ناوی دەرمانەکەشی چاک کرد سەیڤ بێت
                 existing.first['id']
               ]);
         } else {
@@ -522,8 +544,9 @@ class _AddMedicineScreenState extends State<AddMedicineScreen> {
         // ٢. لۆجیکی دارایی و ژمێریاری (Accounting)
         // ==========================================
         // 👈 ئێستا قەرزی کۆمپانیاکە بە دروستی لەسەر نرخە هەرزانەکە (ئەوەی داخڵت کردووە) حیساب دەکرێت
-        double totalPurchasePrice = invoicePurchasePrice * boxes;
-
+        double pricePerStrip = invoicePurchasePrice / per;
+        double totalPurchasePrice =
+            (invoicePurchasePrice * boxes) + (pricePerStrip * extraStrips);
         // ڕێکخستنی بڕی نەقد ئەگەر زیاتر بوو لە وەسڵەکە
         if (paidAmount > totalPurchasePrice) {
           paidAmount = totalPurchasePrice;
@@ -619,6 +642,7 @@ class _AddMedicineScreenState extends State<AddMedicineScreen> {
       pPriceC.clear();
       sPriceC.clear();
       boxQtyC.clear();
+      extraStripsC.clear();
       perBoxC.clear();
       barC.clear();
       sciNameC.clear();
