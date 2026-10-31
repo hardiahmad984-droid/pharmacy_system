@@ -586,8 +586,7 @@ class _SupplierDebtsScreenState extends State<SupplierDebtsScreen> {
 
     showDialog(
         context: context,
-        barrierDismissible:
-            false, // ✅ ناچاری دەکات دوگمەکان بەکاربهێنێت بۆ دڵنیایی لە dispose
+        barrierDismissible: false,
         builder: (ctx) => Directionality(
               textDirection: ui.TextDirection.rtl,
               child: AlertDialog(
@@ -603,7 +602,7 @@ class _SupplierDebtsScreenState extends State<SupplierDebtsScreen> {
                   TextButton(
                       onPressed: () {
                         Navigator.pop(ctx);
-                        pC.dispose(); // ✅ پاککردنەوەی میمۆری لە کاتی پاشگەزبوونەوە
+                        pC.dispose();
                       },
                       child: const Text("پاشگەزبوونەوە")),
                   ElevatedButton(
@@ -618,11 +617,9 @@ class _SupplierDebtsScreenState extends State<SupplierDebtsScreen> {
                               backgroundColor: Colors.red));
                           return;
                         }
-
                         if (pay > debt['remainingAmount']) {
                           ScaffoldMessenger.of(ctx).showSnackBar(SnackBar(
-                              content: Text(
-                                  "بڕەکە زیاترە لە قەرزی ماوە (${(debt['remainingAmount'] as num).toInt()})!"),
+                              content: Text("بڕەکە زیاترە لە قەرزی ماوە!"),
                               backgroundColor: Colors.red));
                           return;
                         }
@@ -632,28 +629,22 @@ class _SupplierDebtsScreenState extends State<SupplierDebtsScreen> {
                             .format(DateTime.now());
 
                         try {
-                          // 🔥 بەکارهێنانی Transaction
                           await db.transaction((txn) async {
+                            // ١. کەمکردنەوەی قەرزەکە لە کۆمپانیا
                             await txn.rawUpdate(
                                 'UPDATE supplier_debts SET remainingAmount = remainingAmount - ? WHERE id = ?',
                                 [pay, debt['id']]);
+                            // ٢. تۆمارکردنی مێژووی پارەدانەکە
                             await txn.insert('supplier_payments', {
                               'supplierDebtId': debt['id'],
                               'amount': pay,
                               'date': date
                             });
-                            await txn.insert('transactions', {
-                              'type': 'out',
-                              'amount': pay,
-                              'category': 'دانەوەی قەرز',
-                              'description':
-                                  "بۆ کۆمپانیا: ${debt['companyName']}",
-                              'date': date
-                            });
+                            // 🚀 ئێرە شوێنی سڕینەوەکەیە: ئەو بەشەمان سڕییەوە کە دەیخستە ناو (transactions/دەخڵ).
                           });
 
                           if (!mounted) return;
-                          Navigator.pop(ctx);
+                          if (ctx.mounted) Navigator.pop(ctx);
                           pC.dispose();
                           load();
                         } catch (e) {

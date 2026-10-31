@@ -27,7 +27,7 @@ class AppConfig {
   // --- لیستی کارمەندان (ئێستا پاسۆردەکان پارێزراون) ---
   static Map<String, String> users = {
     "بەڕێوەبەر": hashPassword("9597"),
-    "بەکارهێنەری A": hashPassword("1984"),
+    "بەکارهێنەری A": hashPassword("1988"),
     "بەکارهێنەری B": hashPassword("1990"),
     "بەکارهێنەری C": hashPassword("2002"),
     "بەکارهێنەری D": hashPassword("2019"),

@@ -124,20 +124,16 @@ class _ShortageListScreenState extends State<ShortageListScreen> {
 
       List<Map<String, dynamic>> temp = [];
       for (var m in res) {
-        // ✅ چارەسەری کلۆد: پشکنینی نال (Null) و ڕێگری لە سفر بۆ بەتاڵ نەبوون
         int totalStrips = m['totalStrips'] as int? ?? 0;
         int stripsPerBox = m['stripsPerBox'] as int? ?? 1;
-        if (stripsPerBox <= 0) stripsPerBox = 1; // ڕێگری لە دابەشکردن بەسەر سفر
+        if (stripsPerBox <= 0) stripsPerBox = 1;
 
-        // 👈 چارەسەری کۆتایی: تەنها و تەنها ئەگەر دەرمانەکە بە تەواوی سفر بوو (تەواو بوو)
         double pPrice = (m['purchasePrice'] as num? ?? 0).toDouble();
 
-        // 👈 چارەسەری زێڕین: تەنها ئەو دەرمانانە دەهێنێت کە بڕەکەیان سفرە وە پێشتر کڕدراون (نرخیان هەیە)
+        // 👈 چارەسەرەکە ئەمەیە: تەنها ئەو دەرمانانە دەهێنێت کە بەتەواوی سفر بوونە و پێشتر کڕدراون (نرخیان هەیە)
         if (totalStrips <= 0 && pPrice > 0) {
           var med = Map<String, dynamic>.from(m);
-
           int neededBoxes = 5;
-
           med['orderCtrl'] = TextEditingController(text: "$neededBoxes ");
           temp.add(med);
         }

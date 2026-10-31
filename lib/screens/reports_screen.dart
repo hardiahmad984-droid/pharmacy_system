@@ -31,7 +31,7 @@ class _HomeScreenState extends State<HomeScreen> {
   List<Map<String, dynamic>> topMeds = [];
   List<Map<String, dynamic>> staffSales = [];
   List<BarChartGroupData> chartData = [];
-  DateTime startDate = DateTime.now().subtract(const Duration(days: 7));
+  DateTime startDate = DateTime.now();
   DateTime endDate = DateTime.now();
   int selectedReport = 0;
 
@@ -314,7 +314,7 @@ class _HomeScreenState extends State<HomeScreen> {
                           color: Colors.grey[100],
                           borderRadius: BorderRadius.circular(15)),
                       child: Row(children: [
-                        _topTab(0, "دیاریکراو"),
+                        _topTab(0, "ئەمڕۆ/دیاریکراو"),
                         _topTab(1, "ئەم مانگە"),
                         _topTab(2, "ئەم ساڵە"),
                       ]),
@@ -740,6 +740,10 @@ class _AnnualReportScreenState extends State<AnnualReportScreen> {
   bool isLoading = true;
   final searchCtrl = TextEditingController();
 
+  // 👈 گۆڕاوەکانی کات وەک شاشەی ڕاپۆرتەکان
+  DateTime startDate = DateTime.now();
+  DateTime endDate = DateTime.now();
+
   @override
   void initState() {
     super.initState();
@@ -753,21 +757,25 @@ class _AnnualReportScreenState extends State<AnnualReportScreen> {
   }
 
   Future<void> _loadData() async {
+    setState(() => isLoading = true);
     try {
-      final db = await DatabaseHelper.initDb();
-      String year = DateFormat('yyyy').format(DateTime.now());
+      String startStr = "${DateFormat('yyyy-MM-dd').format(startDate)} 00:00";
+      String endStr = "${DateFormat('yyyy-MM-dd').format(endDate)} 23:59";
 
+      // 👈 گۆڕانکاری بۆ ئۆفلاین: بەکارهێنانی SQLite و rawQuery
+      final db = await DatabaseHelper.initDb();
       final res = await db.rawQuery('''
         SELECT medName, medCompany, 
                SUM(qtySoldStrips) as totalQty, 
                SUM(purchasePrice) as totalPurchase, 
                SUM(salePrice) as totalSale 
         FROM sales 
-        WHERE date LIKE ? AND type != 'تەلفیات' AND type != 'گەڕاوە'
+        WHERE date >= ? AND date <= ? 
+        AND type != 'تەلفیات' AND type != 'گەڕاوە'
         AND qtySoldStrips > 0
         GROUP BY medName, medCompany 
         ORDER BY totalSale DESC
-      ''', ['$year%']);
+      ''', [startStr, endStr]);
 
       if (!mounted) return;
       setState(() {
@@ -779,8 +787,9 @@ class _AnnualReportScreenState extends State<AnnualReportScreen> {
       debugPrint("AnnualReport load error: $e");
       if (!mounted) return;
       setState(() => isLoading = false);
+      
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text("هەڵە لە بارکردنی ڕاپۆرتی ساڵانە: $e"),
+          content: Text("هەڵە لە بارکردنی ڕاپۆرت: $e"),
           backgroundColor: Colors.red));
     }
   }
@@ -790,7 +799,7 @@ class _AnnualReportScreenState extends State<AnnualReportScreen> {
       setState(() => filteredData = allData);
       return;
     }
-    String q = query.toLowerCase();
+    String q = query.toLowerCase().trim();
     setState(() {
       filteredData = allData.where((element) {
         String name = (element['medName'] ?? '').toString().toLowerCase();
@@ -800,6 +809,24 @@ class _AnnualReportScreenState extends State<AnnualReportScreen> {
     });
   }
 
+  // 👈 ئەم فەنکشنە زیادکرا بۆ هەڵبژاردنی کات بە دیزاینە نوێیەکە
+  Future<void> _pickDateRange() async {
+    DateTimeRange? picked = await showDateRangePicker(
+        context: context,
+        firstDate: DateTime(2020),
+        lastDate: DateTime(2101),
+        initialDateRange: DateTimeRange(start: startDate, end: endDate),
+        builder: (context, child) =>
+            Directionality(textDirection: ui.TextDirection.rtl, child: child!));
+    if (picked != null) {
+      setState(() {
+        startDate = picked.start;
+        endDate = picked.end;
+      });
+      _loadData(); // نوێکردنەوە دوای دیاریکردنی کات
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Directionality(
@@ -807,146 +834,122 @@ class _AnnualReportScreenState extends State<AnnualReportScreen> {
       child: Scaffold(
         backgroundColor: const Color(0xFFF0F4F8),
         appBar: AppBar(
-          title: const Text("کۆبەند و ئاماری ساڵ"),
+          title: const Text("ئاماری وردی فرۆشتنی دەرمانەکان"),
           backgroundColor: Colors.white,
           elevation: 0,
         ),
-        body: isLoading
-            ? const Center(child: CircularProgressIndicator())
-            : Column(
+        body: Column(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(15),
+              color: Colors.white,
+              child: Column(
                 children: [
-                  Container(
-                    padding: const EdgeInsets.all(20),
-                    color: Colors.white,
-                    child: TextField(
-                      controller: searchCtrl,
-                      decoration: InputDecoration(
-                        hintText: "گەڕان بەدوای ناوی دەرمان یان کۆمپانیا...",
-                        prefixIcon:
-                            const Icon(Icons.search, color: Colors.teal),
-                        filled: true,
-                        fillColor: Colors.grey.shade100,
-                        border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(15),
-                            borderSide: BorderSide.none),
-                        contentPadding: const EdgeInsets.symmetric(
-                            vertical: 15, horizontal: 20),
-                      ),
-                      onChanged: _filterData,
+                  // 👈 دوگمە سەوزە جوانەکە لێرە جێگیر کرا!
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton.icon(
+                      onPressed: _pickDateRange,
+                      icon: const Icon(Icons.date_range),
+                      label: Text(
+                          "${DateFormat('yyyy/MM/dd').format(startDate)}  تا  ${DateFormat('yyyy/MM/dd').format(endDate)}",
+                          style: const TextStyle(fontWeight: FontWeight.bold)),
+                      style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.teal.shade50,
+                          foregroundColor: Colors.teal,
+                          elevation: 0,
+                          padding: const EdgeInsets.all(15),
+                          shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12))),
                     ),
                   ),
-                  Expanded(
-                    child: filteredData.isEmpty
-                        ? const Center(
-                            child: Text("هیچ ئەنجامێک نەدۆزرایەوە",
-                                style: TextStyle(
-                                    color: Colors.grey, fontSize: 16)))
-                        : GridView.builder(
-                            padding: const EdgeInsets.all(20),
-                            gridDelegate:
-                                const SliverGridDelegateWithMaxCrossAxisExtent(
-                              maxCrossAxisExtent: 400,
-                              childAspectRatio: 1.4,
-                              crossAxisSpacing: 15,
-                              mainAxisSpacing: 15,
-                            ),
-                            itemCount: filteredData.length,
-                            itemBuilder: (context, i) {
-                              final s = filteredData[i];
-                              double profit = ((s['totalSale'] as num) -
-                                      (s['totalPurchase'] as num))
-                                  .toDouble();
-
-                              return Card(
-                                  elevation: 0,
-                                  shape: RoundedRectangleBorder(
-                                      borderRadius: BorderRadius.circular(15),
-                                      side: BorderSide(
-                                          color: Colors.grey.shade300)),
-                                  child: Padding(
-                                      padding: const EdgeInsets.all(15),
-                                      child: Column(
-                                          crossAxisAlignment:
-                                              CrossAxisAlignment.start,
-                                          children: [
-                                            Row(
-                                                mainAxisAlignment:
-                                                    MainAxisAlignment
-                                                        .spaceBetween,
-                                                crossAxisAlignment:
-                                                    CrossAxisAlignment.start,
-                                                children: [
-                                                  Expanded(
-                                                      child: Text(
-                                                          s['medName']
-                                                              .toString(),
-                                                          style:
-                                                              const TextStyle(
-                                                                  fontSize: 16,
-                                                                  fontWeight:
-                                                                      FontWeight
-                                                                          .bold,
-                                                                  color: Colors
-                                                                      .teal),
-                                                          maxLines: 1,
-                                                          overflow: TextOverflow
-                                                              .ellipsis)),
-                                                  const SizedBox(width: 5),
-                                                  Text(
-                                                      s['medCompany']
-                                                          .toString(),
-                                                      style: const TextStyle(
-                                                          color:
-                                                              Colors.blueGrey,
-                                                          fontSize: 12)),
-                                                ]),
-                                            const Divider(height: 20),
-                                            Row(
-                                                mainAxisAlignment:
-                                                    MainAxisAlignment
-                                                        .spaceAround,
-                                                children: [
-                                                  _statBox(
-                                                      "بڕی گشتی",
-                                                      "${s['totalQty']} شیت",
-                                                      Colors.blue),
-                                                  _statBox(
-                                                      "کۆی کڕین",
-                                                      (s['totalPurchase']
-                                                              as num)
-                                                          .toStringAsFixed(0),
-                                                      Colors.red),
-                                                  _statBox(
-                                                      "کۆی فرۆشتن",
-                                                      (s['totalSale'] as num)
-                                                          .toStringAsFixed(0),
-                                                      Colors.green),
-                                                ]),
-                                            const Spacer(),
-                                            Container(
-                                                padding:
-                                                    const EdgeInsets.all(10),
-                                                width: double.infinity,
-                                                decoration: BoxDecoration(
-                                                    color: Colors.green.shade50,
-                                                    borderRadius:
-                                                        BorderRadius.circular(
-                                                            10)),
-                                                child: Center(
-                                                    child: Text(
-                                                        "قازانجی پاک: ${profit.toStringAsFixed(0)} دینار",
-                                                        style: const TextStyle(
-                                                            fontSize: 15,
-                                                            fontWeight:
-                                                                FontWeight.bold,
-                                                            color:
-                                                                Colors.green))))
-                                          ])));
-                            },
-                          ),
+                  const SizedBox(height: 15),
+                  // گەڕان بە ناو یان کۆمپانیا
+                  TextField(
+                    controller: searchCtrl,
+                    decoration: InputDecoration(
+                      hintText: "گەڕان بەدوای ناوی دەرمان یان کۆمپانیا...",
+                      prefixIcon: const Icon(Icons.search, color: Colors.teal),
+                      filled: true,
+                      fillColor: Colors.grey.shade100,
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
+                      contentPadding: const EdgeInsets.symmetric(vertical: 12, horizontal: 15),
+                    ),
+                    onChanged: _filterData,
                   ),
                 ],
               ),
+            ),
+
+            // لیستی دەرمانەکان
+            Expanded(
+              child: isLoading
+                  ? const Center(child: CircularProgressIndicator())
+                  : filteredData.isEmpty
+                      ? const Center(child: Text("هیچ فرۆشتنێک نەدۆزرایەوە بۆ ئەم بەروارە", style: TextStyle(color: Colors.grey, fontSize: 16)))
+                      : GridView.builder(
+                          padding: const EdgeInsets.all(15),
+                          gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+                            maxCrossAxisExtent: 400,
+                            childAspectRatio: 1.35,
+                            crossAxisSpacing: 12,
+                            mainAxisSpacing: 12,
+                          ),
+                          itemCount: filteredData.length,
+                          itemBuilder: (context, i) {
+                            final s = filteredData[i];
+                            double profit = ((s['totalSale'] as num) - (s['totalPurchase'] as num)).toDouble();
+                            int totalStrips = s['totalQty'] as int;
+
+                            return Card(
+                              elevation: 0,
+                              shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(15),
+                                  side: BorderSide(color: Colors.grey.shade300)),
+                              child: Padding(
+                                padding: const EdgeInsets.all(15),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Row(
+                                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                      children: [
+                                        Expanded(
+                                          child: Text(s['medName'].toString(),
+                                              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.teal),
+                                              overflow: TextOverflow.ellipsis),
+                                        ),
+                                        Text(s['medCompany'].toString(), style: const TextStyle(color: Colors.blueGrey, fontSize: 12)),
+                                      ],
+                                    ),
+                                    const Divider(height: 15),
+                                    Row(
+                                      mainAxisAlignment: MainAxisAlignment.spaceAround,
+                                      children: [
+                                        _statBox("بڕی فرۆشراو", "$totalStrips شیت", Colors.blue),
+                                        _statBox("کۆی تێچوو", (s['totalPurchase'] as num).toStringAsFixed(0), Colors.red),
+                                        _statBox("کۆی فرۆشتن", (s['totalSale'] as num).toStringAsFixed(0), Colors.green),
+                                      ],
+                                    ),
+                                    const Spacer(),
+                                    Container(
+                                      padding: const EdgeInsets.all(8),
+                                      width: double.infinity,
+                                      decoration: BoxDecoration(color: Colors.green.shade50, borderRadius: BorderRadius.circular(8)),
+                                      child: Center(
+                                        child: Text("قازانج: ${profit.toStringAsFixed(0)} دینار",
+                                            style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.green)),
+                                      ),
+                                    )
+                                  ],
+                                ),
+                              ),
+                            );
+                          },
+                        ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -954,9 +957,7 @@ class _AnnualReportScreenState extends State<AnnualReportScreen> {
   Widget _statBox(String l, String v, Color c) => Column(children: [
         Text(l, style: const TextStyle(fontSize: 11, color: Colors.grey)),
         const SizedBox(height: 4),
-        Text(v,
-            style:
-                TextStyle(color: c, fontWeight: FontWeight.bold, fontSize: 13))
+        Text(v, style: TextStyle(color: c, fontWeight: FontWeight.bold, fontSize: 13))
       ]);
 }
 

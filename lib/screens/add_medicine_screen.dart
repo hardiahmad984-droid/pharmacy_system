@@ -540,18 +540,15 @@ class _AddMedicineScreenState extends State<AddMedicineScreen> {
           });
         }
 
-        // ==========================================
+       
         // ٢. لۆجیکی دارایی و ژمێریاری (Accounting)
         // ==========================================
-        // 👈 ئێستا قەرزی کۆمپانیاکە بە دروستی لەسەر نرخە هەرزانەکە (ئەوەی داخڵت کردووە) حیساب دەکرێت
         double pricePerStrip = invoicePurchasePrice / per;
         double totalPurchasePrice =
             (invoicePurchasePrice * boxes) + (pricePerStrip * extraStrips);
-        // ڕێکخستنی بڕی نەقد ئەگەر زیاتر بوو لە وەسڵەکە
+
         if (paidAmount > totalPurchasePrice) {
           paidAmount = totalPurchasePrice;
-
-          // 👈 زیادکردنی پەیامی ئاگادارکردنەوە بۆ ئەزموونی بەکارهێنەر (UX)
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(SnackBar(
               content: Text(
@@ -574,7 +571,6 @@ class _AddMedicineScreenState extends State<AddMedicineScreen> {
             'date': date
           });
 
-          // خستنە سەر قەرزی کۆمپانیا
           if (remainingDebt > 0) {
             final existingDebt = await txn.query('supplier_debts',
                 where: 'LOWER(companyName) = LOWER(?) AND remainingAmount > 0',
@@ -608,19 +604,8 @@ class _AddMedicineScreenState extends State<AddMedicineScreen> {
                 'amount': paidAmount,
                 'date': date
               });
+              // 🚀 ئێرە شوێنی سڕینەوەکەیە! ئەو کۆدەی پارەی لە (transactions) دەردەکرد بەتەواوی سڕایەوە.
             }
-          }
-
-          // دەرکردنی پارە لە سندوق
-          if (paidAmount > 0) {
-            await txn.insert('transactions', {
-              'type': 'out',
-              'amount': paidAmount,
-              'category': 'کڕینی دەرمان',
-              'description':
-                  "پارەدانی نەقد بۆ دەرمانی $cleanName لە $companyName",
-              'date': date
-            });
           }
         }
 

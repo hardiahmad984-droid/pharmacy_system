@@ -62,8 +62,8 @@ class _SalesScreenState extends State<SalesScreen> {
         if (!mounted) return;
 
         final res = await db.query('medicines',
-            where: 'barcode = ?',
-            whereArgs: [med['barcode']],
+            where: 'barcode = ? AND LOWER(name) = LOWER(?)',
+            whereArgs: [med['barcode'], med['name'].toString().trim()],
             orderBy: 'expiryDate ASC');
 
         if (res.isEmpty) {
@@ -146,21 +146,26 @@ class _SalesScreenState extends State<SalesScreen> {
 
   Future<bool> _hasEnoughStock(
       Map<String, dynamic> med, int requestedStrips) async {
-    if (med['id'] == null) return true; // بۆ مەوادی فەل (دەستی) هەمیشە ڕێگە بدە
+    if (med['id'] == null) return true;
 
     int currentInCart = 0;
-    String medBarcode = med['barcode']?.toString() ?? '';
+    String medBarcode = (med['barcode'] ?? '').toString().trim();
+    String medName = (med['name'] ?? '').toString().trim().toLowerCase();
 
     cart.forEach((key, value) {
-      if (value['barcode']?.toString() == medBarcode) {
+      String cartBarcode = (value['barcode'] ?? '').toString().trim();
+      String cartName = (value['name'] ?? '').toString().trim().toLowerCase();
+      if (cartBarcode == medBarcode && cartName == medName) {
         currentInCart += (value['stripsToDeduct'] as int);
       }
     });
 
-    // کۆکردنەوەی کۆی هەموو وەجبەکانی هەمان بارکۆد لە داتابەیس
     final db = await DatabaseHelper.initDb();
-    final batches = await db
-        .query('medicines', where: 'barcode = ?', whereArgs: [medBarcode]);
+    final batches = await db.query(
+      'medicines',
+      where: 'barcode = ? AND LOWER(name) = LOWER(?)',
+      whereArgs: [medBarcode, medName],
+    );
 
     int availableStrips = 0;
     for (var b in batches) {
@@ -231,7 +236,6 @@ class _SalesScreenState extends State<SalesScreen> {
   // ================================================================
   Future<void> addToCart(Map<String, dynamic> med,
       {bool isManual = false}) async {
-    // ئەگەر بە دەستی زیادکرا بوو (لە ڕێگەی ExpansionTile)
     if (isManual) {
       _processAdd(med, "شیت", 1, med['price'], med['purchasePrice'], true);
       return;
@@ -240,105 +244,38 @@ class _SalesScreenState extends State<SalesScreen> {
     try {
       final db = await DatabaseHelper.initDb();
       final batches = await db.query('medicines',
-          where: 'barcode = ? AND totalStrips > 0',
-          whereArgs: [med['barcode'].toString().trim()],
+          where: 'barcode = ? AND LOWER(name) = LOWER(?) AND totalStrips > 0',
+          whereArgs: [
+            med['barcode'].toString().trim(),
+            med['name'].toString().trim()
+          ],
           orderBy: 'expiryDate ASC');
 
-      // ✅ چارەسەر: پشکنین دوای هێنانەوەی داتا لە داتابەیس
       if (!mounted) return;
 
-      bool shouldWarn = false;
-      String earliestExpiry = "";
-
-      // پشکنین ئەگەر چەند وەجبەیەکی جیاواز هەبوو
-      if (batches.length > 1) {
-        earliestExpiry = batches.first['expiryDate'].toString();
-        for (var b in batches) {
-          if (b['expiryDate'].toString() != earliestExpiry) {
-            shouldWarn = true;
-            break;
-          }
-        }
+      if (batches.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+            content: Text("ئەم دەرمانە لە کۆگا نەماوە!"),
+            backgroundColor: Colors.red));
+        return;
       }
 
-      // نیشاندانی ئاگاداری بۆ وەجبە جیاوازەکان
-      if (shouldWarn) {
-        bool? confirm = await showDialog<bool>(
-            context: context,
-            builder: (ctx) => Directionality(
-                  textDirection: ui.TextDirection.rtl,
-                  child: AlertDialog(
-                    shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(20)),
-                    title: const Row(children: [
-                      Icon(Icons.warning_amber_rounded,
-                          color: Colors.orange, size: 30),
-                      SizedBox(width: 10),
-                      Text("ئاگاداری وەجبەکان!")
-                    ]),
-                    content: Text(
-                        "ئەم دەرمانە زیاتر لە یەک وەجبەی لە کۆگادا هەیە بە بەسەرچوونی جیاواز.\n\n"
-                        "نزیکترین بەسەرچوونی بریتییە لە: $earliestExpiry\n\n"
-                        "تکایە دڵنیابە کە ئەو پاکەتە دەدەیت بە نەخۆشەکە کە بەسەرچوونەکەی کۆنترە بۆ ئەوەی لە کۆگا نەمێنێتەوە."),
-                    actions: [
-                      TextButton(
-                          onPressed: () => Navigator.pop(ctx, false),
-                          child: const Text("پاشگەزبوونەوە",
-                              style: TextStyle(color: Colors.grey))),
-                      ElevatedButton(
-                          style: ElevatedButton.styleFrom(
-                              backgroundColor: Colors.orange,
-                              foregroundColor: Colors.white),
-                          onPressed: () => Navigator.pop(ctx, true),
-                          child: const Text("باشە، تێگەیشتم")),
-                    ],
-                  ),
-                ));
-
-        // ✅ چارەسەر: پشکنین دوای ئەوەی بەکارهێنەر وەڵامی دیالۆگەکەی دایەوە
-        if (!mounted) return;
-
-        if (confirm != true) {
+      // ✅ ئەگەر زیاتر لە یەک وەجبە بوو → دیالۆگی نوێ
+      if (batches.length > 1) {
+        Map<String, dynamic>? chosen =
+            await _showBatchSelector(batches, med['name'].toString());
+        if (chosen == null) {
+          if (!mounted) return;
           searchCtrl.clear();
           searchFocusNode.requestFocus();
           return;
         }
-      }
-
-      // زیادکردنی ڕاستەوخۆ بەپێی دۆخی فرۆشتنی دیاریکراو
-      if (selectedSellMode == "پاکەت") {
-        if (await _hasEnoughStock(med, med['stripsPerBox'])) {
-          _processAdd(
-              med,
-              "پاکەت",
-              med['stripsPerBox'],
-              (med['price'] as num).toDouble(),
-              (med['purchasePrice'] as num).toDouble(),
-              false);
-        }
-      } else if (selectedSellMode == "شیت") {
-        if (await _hasEnoughStock(med, 1)) {
-          double rawStripPrice =
-              (med['price'] as num).toDouble() / (med['stripsPerBox'] as int);
-          _processAdd(
-              med,
-              "شیت",
-              1,
-              roundToNearest250(rawStripPrice),
-              (med['purchasePrice'] as num).toDouble() /
-                  (med['stripsPerBox'] as int),
-              false);
-        }
-      } else if (selectedSellMode == "جوملە") {
-        if (await _hasEnoughStock(med, med['stripsPerBox'])) {
-          double pPrice = (med['purchasePrice'] as num).toDouble();
-          // 👈 زیادکردنی roundToNearest250 بۆ نرخی فرۆشتن
-          _processAdd(med, "جوملە", med['stripsPerBox'],
-              roundToNearest250(pPrice), pPrice, false);
-        }
+        if (!mounted) return;
+        await _applyAddLogic(chosen);
+      } else {
+        await _applyAddLogic(batches.first);
       }
     } catch (e) {
-      // ✅ چارەسەر: پاراستنی بەرنامەکە لە کراش لە کاتی سکانکردنی هەڵەدا
       debugPrint("addToCart error: $e");
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
@@ -347,10 +284,46 @@ class _SalesScreenState extends State<SalesScreen> {
     }
   }
 
+  Future<void> _applyAddLogic(Map<String, dynamic> chosenMed) async {
+    int stripsPerBox = chosenMed['stripsPerBox'] as int? ?? 1;
+    if (stripsPerBox <= 0) stripsPerBox = 1;
+
+    if (selectedSellMode == "پاکەت") {
+      if (await _hasEnoughStock(chosenMed, stripsPerBox)) {
+        _processAdd(
+            chosenMed,
+            "پاکەت",
+            stripsPerBox,
+            (chosenMed['price'] as num).toDouble(),
+            (chosenMed['purchasePrice'] as num).toDouble(),
+            false);
+      }
+    } else if (selectedSellMode == "شیت") {
+      if (await _hasEnoughStock(chosenMed, 1)) {
+        double rawStripPrice =
+            (chosenMed['price'] as num).toDouble() / stripsPerBox;
+        _processAdd(
+            chosenMed,
+            "شیت",
+            1,
+            roundToNearest250(rawStripPrice),
+            (chosenMed['purchasePrice'] as num).toDouble() / stripsPerBox,
+            false);
+      }
+    } else if (selectedSellMode == "جوملە") {
+      if (await _hasEnoughStock(chosenMed, stripsPerBox)) {
+        double pPrice = (chosenMed['purchasePrice'] as num).toDouble();
+        _processAdd(chosenMed, "جوملە", stripsPerBox, roundToNearest250(pPrice),
+            pPrice, false);
+      }
+    }
+  }
+
   void _processAdd(Map<String, dynamic> med, String uType, int strips,
       double price, double pPrice, bool isManual) {
-    String key =
-        isManual ? "manual_${med['name']}" : "${med['barcode']}_$uType";
+    String key = isManual
+        ? "manual_${med['name']}"
+        : "${med['barcode']}_${med['name']}_$uType";
     setState(() {
       if (cart.containsKey(key)) {
         cart[key]!['displayQty'] += 1;
@@ -372,47 +345,53 @@ class _SalesScreenState extends State<SalesScreen> {
     });
   }
 
+  bool isCheckingOut = false; // 👈 ئەمە لە سەرەوەی State دابنێ
   // ================================================================
   // لۆجیکی دارایی فرۆشتن (پارێزراو ١٠٠٪)
   // ================================================================
   void checkout() async {
-    if (cart.isEmpty) return;
-
-    double extra = double.tryParse(extraCtrl.text) ?? 0;
-    double discount = double.tryParse(discountCtrl.text) ?? 0;
-
-    // 👈 چارەسەری کوشندە: ڕێگری لە داشکاندن و زیادەی سالب
-    if (extra < 0 || discount < 0) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text("داشکاندن و زیادە نابێت سالب بن!"),
-          backgroundColor: Colors.red));
-      return;
-    }
-    double finalTotal = roundToNearest250(total + extra - discount);
-
-    if (finalTotal < 0) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text("کۆی گشتی نابێت بە سالب بێت!"),
-          backgroundColor: Colors.red));
-      return;
-    }
+    // 👈 ١. ئەگەر سەبەتەکە بەتاڵ بێت یان پێشتر کلیک کرابێت، ڕێگە مەدە
+    if (cart.isEmpty || isCheckingOut) return;
+    isCheckingOut = true; // 👈 دوگمەکە قفڵ دەکات لە دەبڵ-کلیک
 
     try {
+      double extra = double.tryParse(extraCtrl.text) ?? 0;
+      double discount = double.tryParse(discountCtrl.text) ?? 0;
+
+      // 👈 ڕێگری لە داشکاندن و زیادەی سالب
+      if (extra < 0 || discount < 0) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+            content: Text("داشکاندن و زیادە نابێت سالب بن!"),
+            backgroundColor: Colors.red));
+        return;
+      }
+
+      double finalTotal = roundToNearest250(total + extra - discount);
+
+      if (finalTotal < 0) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+            content: Text("کۆی گشتی نابێت بە سالب بێت!"),
+            backgroundColor: Colors.red));
+        return;
+      }
+
       final db = await DatabaseHelper.initDb();
       String date = DateFormat('yyyy-MM-dd HH:mm').format(DateTime.now());
 
       final lastSale = await db.rawQuery('SELECT MAX(id) as lastId FROM sales');
       int displayInvoiceNo = (lastSale.first['lastId'] as int? ?? 0) + 1;
-
-      // ✅ چارەسەری نوێ: ئێستا ژمارەی وەسڵەکە دەبێتە ١، ٢، ٣... نەک ژمارەیەکی درێژی بێزارکەر
       String uniqueInvoiceNo = displayInvoiceNo.toString();
 
-      // ١. پشکنینی ڕاستەقینەی کۆگا پێش دەستپێکردنی فرۆشتن
+      // پشکنینی کۆگا پێش فرۆشتن
+      // پشکنینی کۆگا پێش فرۆشتن
       for (var item in cart.values) {
         if (item['isManual'] == false) {
           final fresh = await db.query('medicines',
-              where: 'barcode = ?',
-              whereArgs: [item['barcode'].toString().trim()]);
+              where: 'barcode = ? AND LOWER(name) = LOWER(?)',
+              whereArgs: [
+                item['barcode'].toString().trim(),
+                item['name'].toString().trim()
+              ]);
           int freshStock =
               fresh.fold(0, (sum, r) => sum + (r['totalStrips'] as int? ?? 0));
           if (freshStock < (item['stripsToDeduct'] as int)) {
@@ -421,7 +400,7 @@ class _SalesScreenState extends State<SalesScreen> {
                 content: Text(
                     "${item['name']}: لە کۆگا تەنها $freshStock شیت ماوە!"),
                 backgroundColor: Colors.red));
-            return; // بەرنامەکە ڕادەگرێت و ناهێڵێت بفرۆشرێت
+            return;
           }
         }
       }
@@ -431,7 +410,6 @@ class _SalesScreenState extends State<SalesScreen> {
       String currentPhone = customerPhoneCtrl.text.trim();
       double paid = double.tryParse(paidAmountCtrl.text) ?? 0;
 
-      // 👈 چارەسەری کوشندە: ڕێگری لە پێشەکی سالب یان زیاتر لە کۆی وەسڵ
       if (paid < 0) {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
             content: Text("پێشەکی نابێت سالب بێت!"),
@@ -456,13 +434,11 @@ class _SalesScreenState extends State<SalesScreen> {
 
       if (!mounted) return;
 
-      // ٢. بەکارهێنانی Transaction بۆ ئەوەی قەرز و کۆگا پێکەوە سەیڤ ببن یان هیچیان نەبن
+      // سەیڤکردن لە SQLite
       await db.transaction((txn) async {
-        // لۆجیکی قەرز یان نەقد
         if (isCredit) {
           List<Map<String, dynamic>> existingDebt;
 
-          // گەڕان بەدوای کڕیار (ناو + مۆبایل) وەک ئەوەی پێشتر چاکمان کرد
           if (currentPhone.isEmpty) {
             existingDebt = await txn.query('debts',
                 where: 'LOWER(customerName) = LOWER(?) AND remainingAmount > 0',
@@ -520,7 +496,6 @@ class _SalesScreenState extends State<SalesScreen> {
           });
         }
 
-        // لۆجیکی فرۆشتن و کەمکردنەوەی کۆگا (FEFO)
         for (var item in cart.values) {
           await txn.insert('sales', {
             'invoiceNo': uniqueInvoiceNo,
@@ -545,8 +520,12 @@ class _SalesScreenState extends State<SalesScreen> {
             int remaining = item['stripsToDeduct'];
             final List<Map<String, dynamic>> batches = await txn.query(
                 'medicines',
-                where: 'barcode = ? AND totalStrips > 0',
-                whereArgs: [item['barcode'].toString().trim()],
+                where:
+                    'barcode = ? AND LOWER(name) = LOWER(?) AND totalStrips > 0',
+                whereArgs: [
+                  item['barcode'].toString().trim(),
+                  item['name'].toString().trim()
+                ],
                 orderBy: 'expiryDate ASC');
 
             for (var b in batches) {
@@ -565,7 +544,6 @@ class _SalesScreenState extends State<SalesScreen> {
               }
             }
 
-            // ئەگەر هێشتا دەرمانی مابوو لە وەسڵەکە بەڵام لە کۆگا نەمابوو، ئەوا مامەڵەکە ڕادەگرێت
             if (remaining > 0) {
               throw Exception(
                   "${item['name']}: کێشەی کۆگا، ناتوانرێت ئەم بڕە بفرۆشرێت!");
@@ -573,7 +551,6 @@ class _SalesScreenState extends State<SalesScreen> {
           }
         }
 
-        // داشکاندن و زیادە
         if (discount > 0 || extra > 0) {
           await txn.insert('sales', {
             'invoiceNo': uniqueInvoiceNo,
@@ -592,11 +569,11 @@ class _SalesScreenState extends State<SalesScreen> {
             'extra': extra
           });
         }
-      }); // کۆتایی Transaction
+      });
 
       if (!mounted) return;
 
-      // چاپکردنی وەسڵ
+      // پەنجەرەی چاپکردنی وەسڵ
       await showDialog(
         context: context,
         builder: (ctx) => Directionality(
@@ -693,6 +670,9 @@ class _SalesScreenState extends State<SalesScreen> {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
           content: Text("هەڵە لە تەواوکردنی فرۆشتن: $e"),
           backgroundColor: Colors.red));
+    } finally {
+      // 👈 گرنگترین بەش: بە هەموو شێوازێک و بەبێ هیچ هەڵەیەک دوگمەکە دەکاتەوە!
+      isCheckingOut = false;
     }
   }
 
@@ -712,8 +692,8 @@ class _SalesScreenState extends State<SalesScreen> {
           border: Border.all(
               color: isSelected ? Colors.teal : Colors.grey.shade300),
         ),
+        // 👈 دانانی FittedBox بۆ ئەوەی نووسینەکە خۆی بچووک بکاتەوە ئەگەر شاشەکە بچووک بوو
         child: FittedBox(
-          // 👈 ئەمە چارەسەری کێشەکەیە
           fit: BoxFit.scaleDown,
           child: Text(mode,
               style: TextStyle(
@@ -722,6 +702,257 @@ class _SalesScreenState extends State<SalesScreen> {
                   fontSize: 13)),
         ),
       ),
+    );
+  }
+
+// ================================================================
+// 🎨 دیالۆگی هەڵبژاردنی وەجبە — دیزاینی نوێ
+// ================================================================
+  Future<Map<String, dynamic>?> _showBatchSelector(
+      List<Map<String, dynamic>> batches, String medName) async {
+    return showDialog<Map<String, dynamic>>(
+      context: context,
+      barrierDismissible: true,
+      builder: (ctx) => Directionality(
+        textDirection: ui.TextDirection.rtl,
+        child: Dialog(
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          insetPadding:
+              const EdgeInsets.symmetric(horizontal: 40, vertical: 40),
+          child: Container(
+            width: 500,
+            constraints: const BoxConstraints(maxHeight: 600),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // ============ هێدەر ============
+                Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      colors: [Colors.teal.shade600, Colors.teal.shade800],
+                    ),
+                    borderRadius:
+                        const BorderRadius.vertical(top: Radius.circular(20)),
+                  ),
+                  child: Row(children: [
+                    Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: Colors.white24,
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: const Icon(Icons.medication,
+                          color: Colors.white, size: 26),
+                    ),
+                    const SizedBox(width: 14),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(medName,
+                              style: const TextStyle(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 17),
+                              overflow: TextOverflow.ellipsis),
+                          const SizedBox(height: 3),
+                          Text("${batches.length} وەجبە هەیە — یەکێک هەڵبژێرە",
+                              style: const TextStyle(
+                                  color: Colors.white70, fontSize: 12)),
+                        ],
+                      ),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.close, color: Colors.white),
+                      onPressed: () => Navigator.pop(ctx, null),
+                    ),
+                  ]),
+                ),
+
+                // ============ لیستی وەجبەکان ============
+                Flexible(
+                  child: ListView.separated(
+                    padding: const EdgeInsets.all(14),
+                    shrinkWrap: true,
+                    itemCount: batches.length,
+                    separatorBuilder: (_, __) => const SizedBox(height: 10),
+                    itemBuilder: (c, i) => _buildBatchCard(
+                      batches[i],
+                      i,
+                      isRecommended: i == 0,
+                      onTap: () => Navigator.pop(ctx, batches[i]),
+                    ),
+                  ),
+                ),
+
+                // ============ فوتەر ============
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(14, 0, 14, 14),
+                  child: TextButton(
+                    onPressed: () => Navigator.pop(ctx, null),
+                    child: const Text("پاشگەزبوونەوە",
+                        style: TextStyle(color: Colors.grey)),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildBatchCard(Map<String, dynamic> b, int index,
+      {bool isRecommended = false, VoidCallback? onTap}) {
+    int t = (b['totalStrips'] as int?) ?? 0;
+    int sp = (b['stripsPerBox'] as int?) ?? 1;
+    if (sp <= 0) sp = 1;
+    int boxes = t ~/ sp;
+    int loose = t % sp;
+    double price = (b['price'] as num?)?.toDouble() ?? 0;
+    double purchase = (b['purchasePrice'] as num?)?.toDouble() ?? 0;
+    String expiry = b['expiryDate']?.toString() ?? '-';
+
+    DateTime? exp;
+    try {
+      exp = DateFormat('yyyy-MM-dd').parse(expiry);
+    } catch (_) {}
+    bool isExpired = exp != null && exp.isBefore(DateTime.now());
+    bool isNearExpiry = exp != null &&
+        !isExpired &&
+        exp.isBefore(DateTime.now().add(const Duration(days: 90)));
+
+    Color statusColor =
+        isExpired ? Colors.red : (isNearExpiry ? Colors.orange : Colors.green);
+    String statusText =
+        isExpired ? 'بەسەرچووە' : (isNearExpiry ? 'نزیک بەسەرچوون' : 'باش');
+
+    return Material(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(14),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(14),
+        onTap: onTap,
+        child: Container(
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(
+                color: statusColor.withValues(alpha: 0.35), width: 1.5),
+            color: statusColor.withValues(alpha: 0.03),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(children: [
+                Container(
+                  width: 30,
+                  height: 30,
+                  decoration: BoxDecoration(
+                    color: statusColor.withValues(alpha: 0.15),
+                    shape: BoxShape.circle,
+                  ),
+                  child: Center(
+                      child: Text("${index + 1}",
+                          style: TextStyle(
+                              color: statusColor,
+                              fontWeight: FontWeight.bold,
+                              fontSize: 13))),
+                ),
+                const SizedBox(width: 10),
+                Icon(Icons.calendar_today, size: 14, color: statusColor),
+                const SizedBox(width: 5),
+                Text(expiry,
+                    style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        color: statusColor,
+                        fontSize: 14)),
+                const SizedBox(width: 6),
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: statusColor.withValues(alpha: 0.15),
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: Text(statusText,
+                      style: TextStyle(
+                          fontSize: 10,
+                          color: statusColor,
+                          fontWeight: FontWeight.bold)),
+                ),
+                const Spacer(),
+                if (isRecommended)
+                  Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                    decoration: BoxDecoration(
+                      color: Colors.teal,
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: const Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.star, size: 11, color: Colors.white),
+                        SizedBox(width: 3),
+                        Text("پێشنیارکراو",
+                            style: TextStyle(
+                                fontSize: 10,
+                                color: Colors.white,
+                                fontWeight: FontWeight.bold)),
+                      ],
+                    ),
+                  ),
+              ]),
+              const SizedBox(height: 10),
+              Row(children: [
+                _infoChip(
+                    Icons.inventory_2,
+                    loose > 0 ? "$boxes پاکەت + $loose شیت" : "$boxes پاکەت",
+                    Colors.blueGrey,
+                    bold: true),
+                const SizedBox(width: 8),
+                _infoChip(
+                    Icons.sell, "${price.toStringAsFixed(0)} د", Colors.green,
+                    bold: true),
+              ]),
+              const SizedBox(height: 8),
+              Row(children: [
+                _infoChip(Icons.business, b['company']?.toString() ?? 'نادیار',
+                    Colors.blueGrey.shade400,
+                    small: true),
+                const SizedBox(width: 8),
+                _infoChip(Icons.shopping_cart,
+                    "کڕین: ${purchase.toStringAsFixed(0)} د", Colors.grey,
+                    small: true),
+              ]),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _infoChip(IconData icon, String text, Color color,
+      {bool bold = false, bool small = false}) {
+    return Container(
+      padding: EdgeInsets.symmetric(
+          horizontal: small ? 6 : 8, vertical: small ? 3 : 4),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(6),
+      ),
+      child: Row(mainAxisSize: MainAxisSize.min, children: [
+        Icon(icon, size: small ? 10 : 12, color: color),
+        const SizedBox(width: 3),
+        Text(text,
+            style: TextStyle(
+                fontSize: small ? 10 : 12,
+                color: color,
+                fontWeight: bold ? FontWeight.bold : FontWeight.normal)),
+      ]),
     );
   }
 
@@ -853,23 +1084,128 @@ class _SalesScreenState extends State<SalesScreen> {
                         try {
                           final db = await DatabaseHelper.initDb();
                           final res = await db.query('medicines',
-                              where: 'barcode = ?', whereArgs: [v.trim()]);
+                              where: 'barcode = ? AND totalStrips > 0',
+                              whereArgs: [v.trim()],
+                              orderBy: 'expiryDate ASC');
 
-                          // ✅ چارەسەری کلۆد: پشکنینی شاشەکە دوای هێنانەوەی داتا لە داتابەیس
                           if (!mounted) return;
 
-                          if (res.isNotEmpty) {
-                            await addToCart(res.first);
-                          } else {
+                          // ئەگەر هیچ نەدۆزرایەوە
+                          if (res.isEmpty) {
                             ScaffoldMessenger.of(context).showSnackBar(
                                 const SnackBar(
-                                    content: Text("ئەم بارکۆدە تۆمار نەکراوە!"),
+                                    content: Text(
+                                        "ئەم بارکۆدە تۆمار نەکراوە یان لە کۆگا نەماوە!"),
                                     backgroundColor: Colors.red));
+                            searchCtrl.clear();
+                            searchFocusNode.requestFocus();
+                            return;
+                          }
+
+                          // ✅ ئەگەر تەنها یەک ئەنجام بوو → ڕاستەوخۆ زیاد بکە
+                          if (res.length == 1) {
+                            await addToCart(res.first);
+                            return;
+                          }
+
+                          // ✅ ئەگەر زیاتر لە یەک ئەنجام بوو → دیالۆگ هەڵبژاردن نیشان بدە
+                          Map<String, dynamic>? chosen =
+                              await showDialog<Map<String, dynamic>>(
+                            context: context,
+                            builder: (ctx) => Directionality(
+                              textDirection: ui.TextDirection.rtl,
+                              child: AlertDialog(
+                                shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(20)),
+                                title: const Row(children: [
+                                  Icon(Icons.warning_amber_rounded,
+                                      color: Colors.orange, size: 28),
+                                  SizedBox(width: 10),
+                                  Expanded(
+                                    child: Text("چەند دەرمان بەم بارکۆدە هەیە!",
+                                        style: TextStyle(
+                                            fontSize: 16,
+                                            fontWeight: FontWeight.bold)),
+                                  ),
+                                ]),
+                                content: SizedBox(
+                                  width: 450,
+                                  child: ConstrainedBox(
+                                    constraints:
+                                        const BoxConstraints(maxHeight: 400),
+                                    child: ListView.builder(
+                                      shrinkWrap: true,
+                                      itemCount: res.length,
+                                      itemBuilder: (c, i) {
+                                        final b = res[i];
+                                        int t = b['totalStrips'] as int? ?? 0;
+                                        int sp = b['stripsPerBox'] as int? ?? 1;
+                                        if (sp <= 0) sp = 1;
+                                        return Card(
+                                          margin:
+                                              const EdgeInsets.only(bottom: 8),
+                                          elevation: 0,
+                                          shape: RoundedRectangleBorder(
+                                              borderRadius:
+                                                  BorderRadius.circular(12),
+                                              side: BorderSide(
+                                                  color: Colors.teal.shade100)),
+                                          child: InkWell(
+                                            borderRadius:
+                                                BorderRadius.circular(12),
+                                            onTap: () => Navigator.pop(ctx, b),
+                                            child: Padding(
+                                              padding: const EdgeInsets.all(12),
+                                              child: Column(
+                                                crossAxisAlignment:
+                                                    CrossAxisAlignment.start,
+                                                children: [
+                                                  Text(b['name'].toString(),
+                                                      style: const TextStyle(
+                                                          fontWeight:
+                                                              FontWeight.bold,
+                                                          fontSize: 15)),
+                                                  const SizedBox(height: 4),
+                                                  Text(
+                                                      "کۆمپانیا: ${b['company'] ?? '-'}",
+                                                      style: TextStyle(
+                                                          fontSize: 12,
+                                                          color: Colors
+                                                              .grey.shade700)),
+                                                  Text(
+                                                      "بڕ: ${t ~/ sp} پاکەت و ${t % sp} شیت  |  بەسەرچوون: ${b['expiryDate']}",
+                                                      style: TextStyle(
+                                                          fontSize: 12,
+                                                          color: Colors
+                                                              .grey.shade700)),
+                                                ],
+                                              ),
+                                            ),
+                                          ),
+                                        );
+                                      },
+                                    ),
+                                  ),
+                                ),
+                                actions: [
+                                  TextButton(
+                                      onPressed: () => Navigator.pop(ctx, null),
+                                      child: const Text("پاشگەزبوونەوە",
+                                          style:
+                                              TextStyle(color: Colors.grey))),
+                                ],
+                              ),
+                            ),
+                          );
+
+                          if (!mounted) return;
+                          if (chosen != null) {
+                            await addToCart(chosen);
+                          } else {
                             searchCtrl.clear();
                             searchFocusNode.requestFocus();
                           }
                         } catch (e) {
-                          // ✅ چارەسەر: ڕێگری لە کراش ئەگەر سکانەرەکە کۆدێکی تێکچووی نارد
                           debugPrint("Barcode search error: $e");
                         }
                       },

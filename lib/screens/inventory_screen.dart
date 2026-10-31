@@ -31,13 +31,26 @@ class _InventoryScreenState extends State<InventoryScreen> {
       Map<String, List<Map<String, dynamic>>> groups = {};
 
       for (var m in res) {
-        String barcode = m['barcode'].toString();
-        if (!groups.containsKey(barcode)) {
-          groups[barcode] = [];
-        }
-        groups[barcode]!.add(m);
+        String bc = (m['barcode'] ?? '').toString().trim().toUpperCase();
+        String name = (m['name'] ?? '').toString().trim().toUpperCase();
+        String company = (m['company'] ?? '').toString().trim().toUpperCase();
 
-        // حیسابکردنی سەرمایە بە شێوەیەکی سەلامەت
+        bool barcodeValid = bc.isNotEmpty &&
+            bc != 'N/A' &&
+            bc != 'NULL' &&
+            bc != '-' &&
+            bc != '.' &&
+            bc != '_';
+
+        String groupKey = barcodeValid
+            ? "BAR_${bc}_NAME_${name}"
+            : "NAME_${name}_COMP_${company}";
+
+        if (!groups.containsKey(groupKey)) {
+          groups[groupKey] = [];
+        }
+        groups[groupKey]!.add(m);
+
         int totalStrips = m['totalStrips'] as int? ?? 0;
         int stripsPerBox = m['stripsPerBox'] as int? ?? 1;
         if (stripsPerBox <= 0) stripsPerBox = 1;
@@ -46,10 +59,9 @@ class _InventoryScreenState extends State<InventoryScreen> {
       }
 
       List<Map<String, dynamic>> summary = [];
-      groups.forEach((barcode, batches) {
+      groups.forEach((groupKey, batches) {
         int totalStrips = 0;
 
-        // ✅ چارەسەری یەکەم: سۆرتکردنی سەلامەت
         try {
           batches.sort((a, b) =>
               a['expiryDate'].toString().compareTo(b['expiryDate'].toString()));
@@ -60,12 +72,12 @@ class _InventoryScreenState extends State<InventoryScreen> {
         }
 
         summary.add({
+          'groupKey': groupKey,
           'name': batches.first['name'],
           'company': batches.first['company'],
-          'barcode': barcode,
+          'barcode': batches.first['barcode'],
           'totalStrips': totalStrips,
           'stripsPerBox': batches.first['stripsPerBox'] ?? 1,
-          // ✅ چارەسەری دووەم: دانانی بەروارێکی دوور ئەگەر بەروارەکە هەڵە بوو
           'earliestExpiry':
               batches.first['expiryDate']?.toString() ?? '2099-12-31',
           'batchCount': batches.length,
@@ -304,7 +316,7 @@ class _InventoryScreenState extends State<InventoryScreen> {
                             }
 
                             bool isSelected =
-                                selectedBarcode == m['barcode'].toString();
+                                selectedBarcode == m['groupKey'].toString();
                             Color cardCol = isSelected
                                 ? Colors.teal.shade50
                                 : Colors.transparent;
@@ -322,7 +334,7 @@ class _InventoryScreenState extends State<InventoryScreen> {
 
                             return InkWell(
                               onTap: () => setState(() =>
-                                  selectedBarcode = m['barcode'].toString()),
+                                  selectedBarcode = m['groupKey'].toString()),
                               child: Container(
                                 margin: const EdgeInsets.symmetric(
                                     horizontal: 10, vertical: 4),
@@ -632,18 +644,21 @@ class _InventoryScreenState extends State<InventoryScreen> {
     qC.dispose(); // ✅ لێرەدا خۆکارانە پاک دەبێتەوە هەرکاتێک پۆپ-ئەپەکە دابخرێت
   }
 
+  // 👈 ئەم کۆدە تەنها بۆ ئۆفلاین (دەرمانخانەی  - SQLite)یە:
   void _editBatch(Map<String, dynamic> b) async {
     final nC = TextEditingController(text: b['name'].toString());
     final cC = TextEditingController(text: b['company'].toString());
     final pC = TextEditingController(text: b['purchasePrice'].toString());
     final sC = TextEditingController(text: b['price'].toString());
-    final barC = TextEditingController(text: b['barcode'].toString());
+    final barC = TextEditingController(text: (b['barcode'] ?? '').toString());
     final spC = TextEditingController(text: b['stripsPerBox'].toString());
     String expDate = b['expiryDate'].toString();
 
+    bool isSaving = false; // 👈 پاراستن لە دەبڵ کلیک و شاشەی ڕەش
+
     await showDialog(
         context: context,
-        barrierDismissible: false, // 👈 پاراستنی میمۆری بۆ ئەوەی بە هەڵە دانەخرێت
+        barrierDismissible: false,
         builder: (ctx) => StatefulBuilder(
             builder: (ctx, setSt) => Directionality(
                   textDirection: ui.TextDirection.rtl,
@@ -653,114 +668,150 @@ class _InventoryScreenState extends State<InventoryScreen> {
                       child: Column(mainAxisSize: MainAxisSize.min, children: [
                         TextField(
                             controller: nC,
-                            decoration: const InputDecoration(labelText: "ناوی دەرمان")),
+                            decoration: const InputDecoration(
+                                labelText: "ناوی دەرمان")),
                         TextField(
                             controller: cC,
-                            decoration: const InputDecoration(labelText: "کۆمپانیا")),
+                            decoration:
+                                const InputDecoration(labelText: "کۆمپانیا")),
                         TextField(
                             controller: pC,
-                            decoration: const InputDecoration(labelText: "نرخی کڕینی پاکەت"),
+                            decoration: const InputDecoration(
+                                labelText: "نرخی کڕینی پاکەت"),
                             keyboardType: TextInputType.number),
                         TextField(
                             controller: sC,
-                            decoration: const InputDecoration(labelText: "نرخی فرۆشتنی پاکەت"),
+                            decoration: const InputDecoration(
+                                labelText: "نرخی فرۆشتنی پاکەت"),
                             keyboardType: TextInputType.number),
                         TextField(
                             controller: barC,
-                            decoration: const InputDecoration(labelText: "بارکۆد")),
+                            decoration:
+                                const InputDecoration(labelText: "بارکۆد")),
                         TextField(
                             controller: spC,
-                            decoration: const InputDecoration(labelText: "شیت لە پاکەتدا"),
+                            decoration: const InputDecoration(
+                                labelText: "شیت لە پاکەتدا"),
                             keyboardType: TextInputType.number),
                         ListTile(
                             title: Text("بەسەرچوون: $expDate"),
                             leading: const Icon(Icons.calendar_month),
                             onTap: () async {
                               DateTime? p = await showDatePicker(
-                                  context: ctx, 
-                                  initialDate: DateTime.tryParse(expDate) ?? DateTime.now(),
+                                  context: ctx,
+                                  initialDate: DateTime.tryParse(expDate) ??
+                                      DateTime.now(),
                                   firstDate: DateTime(2000),
                                   lastDate: DateTime(2100));
                               if (p != null) {
-                                setSt(() => expDate = DateFormat('yyyy-MM-dd').format(p));
+                                setSt(() => expDate =
+                                    DateFormat('yyyy-MM-dd').format(p));
                               }
                             }),
                       ]),
                     ),
                     actions: [
                       TextButton(
-                          onPressed: () {
-                             if (ctx.mounted) Navigator.pop(ctx);
-                          },
+                          onPressed: isSaving
+                              ? null
+                              : () {
+                                  if (ctx.mounted && Navigator.canPop(ctx)) {
+                                    Navigator.pop(ctx);
+                                  }
+                                },
                           child: const Text("پاشگەزبوونەوە")),
                       ElevatedButton(
-                          onPressed: () async {
-                            if (nC.text.trim().isEmpty) {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                  const SnackBar(content: Text("ناوی دەرمان نابێت بەتاڵ بێت!")));
-                              return;
-                            }
+                          onPressed: isSaving
+                              ? null
+                              : () async {
+                                  if (nC.text.trim().isEmpty) {
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                        const SnackBar(
+                                            content: Text(
+                                                "ناوی دەرمان نابێت بەتاڵ بێت!")));
+                                    return;
+                                  }
 
-                            double purchasePrice = double.tryParse(pC.text) ?? 0.0;
-                            double salePrice = double.tryParse(sC.text) ?? 0.0;
+                                  double purchasePrice =
+                                      double.tryParse(pC.text) ?? 0.0;
+                                  double salePrice =
+                                      double.tryParse(sC.text) ?? 0.0;
 
-                            if (purchasePrice < 0 || salePrice < 0) {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                  const SnackBar(
-                                      content: Text("نرخی کڕین و فرۆشتن نابێت سالب بن!"),
-                                      backgroundColor: Colors.red));
-                              return;
-                            }
+                                  if (purchasePrice < 0 || salePrice < 0) {
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                        const SnackBar(
+                                            content: Text(
+                                                "نرخی کڕین و فرۆشتن نابێت سالب بن!"),
+                                            backgroundColor: Colors.red));
+                                    return;
+                                  }
 
-                            int newStripsPerBox = int.tryParse(spC.text) ?? 1;
-                            if (newStripsPerBox <= 0) newStripsPerBox = 1;
+                                  int newStripsPerBox =
+                                      int.tryParse(spC.text) ?? 1;
+                                  if (newStripsPerBox <= 0) newStripsPerBox = 1;
 
-                            // 👈 چارەسەرە زێڕینەکە بۆ پاراستنی بڕی دەرمانەکانی سەر ڕەفەکە
-                            int oldTotalStrips = b['totalStrips'] as int? ?? 0;
-                            int oldStripsPerBox = b['stripsPerBox'] as int? ?? 1;
-                            if (oldStripsPerBox <= 0) oldStripsPerBox = 1;
+                                  int oldTotalStrips =
+                                      b['totalStrips'] as int? ?? 0;
+                                  int oldStripsPerBox =
+                                      b['stripsPerBox'] as int? ?? 1;
+                                  if (oldStripsPerBox <= 0) oldStripsPerBox = 1;
 
-                            int oldBoxes = oldTotalStrips ~/ oldStripsPerBox;
-                            int oldLooseStrips = oldTotalStrips % oldStripsPerBox;
+                                  int oldBoxes =
+                                      oldTotalStrips ~/ oldStripsPerBox;
+                                  int oldLooseStrips =
+                                      oldTotalStrips % oldStripsPerBox;
 
-                            int newTotalStrips = (oldBoxes * newStripsPerBox) + oldLooseStrips;
+                                  int newTotalStrips =
+                                      (oldBoxes * newStripsPerBox) +
+                                          oldLooseStrips;
 
-                            // 👈 بەکارهێنانەوەی SQLite چونکە سیامێد ئۆفلاینە
-                            final db = await DatabaseHelper.initDb();
+                                  setSt(() =>
+                                      isSaving = true); // 👈 قفڵکردنی دوگمەکە
 
-                            try {
-                              await db.update(
-                                  'medicines',
-                                  {
-                                    'name': nC.text.trim(),
-                                    'company': cC.text.trim(),
-                                    'purchasePrice': purchasePrice,
-                                    'price': roundToNearest250(salePrice),
-                                    'barcode': barC.text.trim(),
-                                    'stripsPerBox': newStripsPerBox,
-                                    'totalStrips': newTotalStrips, // 👈 ئەپدەیتکردنی بڕەکەش لێرەدا
-                                    'expiryDate': expDate
-                                  },
-                                  where: 'id = ?',
-                                  whereArgs: [b['id']]);
+                                  try {
+                                    // 👈 لێرەدا SQLite بەکارهاتووە بۆ ئۆفلاین ()
+                                    final db = await DatabaseHelper.initDb();
 
-                              if (!mounted) return;
-                              if (ctx.mounted) Navigator.pop(ctx);
-                              load(); // نوێکردنەوەی شاشەکە
-                            } catch (e) {
-                              if (ctx.mounted) {
-                                ScaffoldMessenger.of(ctx).showSnackBar(SnackBar(
-                                  content: Text("هەڵە ڕوویدا: $e"),
-                                  backgroundColor: Colors.red));
-                              }
-                            }
-                          },
-                          child: const Text("پاشەکەوت")),
+                                    await db.update(
+                                        'medicines',
+                                        {
+                                          'name': nC.text.trim(),
+                                          'company': cC.text.trim(),
+                                          'purchasePrice': purchasePrice,
+                                          'price': roundToNearest250(salePrice),
+                                          'barcode': barC.text.trim(),
+                                          'stripsPerBox': newStripsPerBox,
+                                          'totalStrips': newTotalStrips,
+                                          'expiryDate': expDate
+                                        },
+                                        where: 'id = ?',
+                                        whereArgs: [b['id']]);
+
+                                    if (!mounted) return;
+                                    if (ctx.mounted && Navigator.canPop(ctx)) {
+                                      Navigator.pop(ctx);
+                                    }
+                                    load();
+                                  } catch (e) {
+                                    setSt(() => isSaving = false);
+                                    if (ctx.mounted) {
+                                      ScaffoldMessenger.of(ctx).showSnackBar(
+                                          SnackBar(
+                                              content: Text("هەڵە ڕوویدا: $e"),
+                                              backgroundColor: Colors.red));
+                                    }
+                                  }
+                                },
+                          child: isSaving
+                              ? const SizedBox(
+                                  width: 20,
+                                  height: 20,
+                                  child: CircularProgressIndicator(
+                                      color: Colors.white, strokeWidth: 2))
+                              : const Text("پاشەکەوت")),
                     ],
                   ),
                 )));
-                
-    // پاککردنەوەی میمۆری
     nC.dispose();
     cC.dispose();
     pC.dispose();
