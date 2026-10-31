@@ -439,10 +439,8 @@ class _AddMedicineScreenState extends State<AddMedicineScreen> {
     if (per <= 0) per = 1;
 
     int boxes = int.tryParse(boxQtyC.text) ?? 0;
-    int extraStrips =
-        int.tryParse(extraStripsC.text) ?? 0; // 👈 وەرگرتنی شیتە زیادەکان
+    int extraStrips = int.tryParse(extraStripsC.text) ?? 0;
 
-    // ئەگەر هەم پاکەت و هەم شیتەکە سفر یان بەتاڵ بوون
     if (boxes <= 0 && extraStrips <= 0) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
           content: Text("تکایە بڕی کڕدراو (پاکەت یان شیت) بە دروستی بنووسە!"),
@@ -457,7 +455,6 @@ class _AddMedicineScreenState extends State<AddMedicineScreen> {
       return;
     }
 
-    // 👈 ئێستا شیتە زیادەکانیش دەچێتە سەر کۆی گشتی کۆگا
     int totalNewStrips = (boxes * per) + extraStrips;
 
     if (expiry == null) {
@@ -477,62 +474,44 @@ class _AddMedicineScreenState extends State<AddMedicineScreen> {
     if (!mounted) return;
 
     try {
-      // 🔥 دەستپێکردنی Transaction (پێکەوە جێبەجێ دەبن یان هیچیان جێبەجێ نابن)
       await db.transaction((txn) async {
         // ==========================================
-        // ١. لۆجیکی کۆگا (Inventory)
+        // ١. لۆجیکی کۆگا (Inventory) - نوێکراوەتەوە بەپێی نرخ
         // ==========================================
-        final existing = await txn.query('medicines',
-            where: 'barcode = ? AND expiryDate = ?',
-            whereArgs: [cleanBarcode, expiry]);
+        double roundedSalePrice = roundToNearest250(salePricePerBox);
 
-        double invoicePurchasePrice =
-            purchasePricePerBox; // بۆ حیسابکردنی قەرزی کۆمپانیا
-        double inventoryPurchasePrice =
-            purchasePricePerBox; // بۆ دانان لەناو کۆگا
-        double inventorySalePrice = salePricePerBox; // بۆ دانان لەناو کۆگا
+        // 👈 گۆڕانکاری سەرەکی: مەرجی نرخی کڕین و فرۆشتن زیادکرا
+        final existing = await txn.query('medicines',
+            where:
+                'barcode = ? AND expiryDate = ? AND purchasePrice = ? AND price = ?',
+            whereArgs: [
+              cleanBarcode,
+              expiry,
+              purchasePricePerBox,
+              roundedSalePrice
+            ]);
+
+        double invoicePurchasePrice = purchasePricePerBox;
 
         if (existing.isNotEmpty) {
-          double oldPurchasePrice =
-              (existing.first['purchasePrice'] as num? ?? 0).toDouble();
-          double oldSalePrice =
-              (existing.first['price'] as num? ?? 0).toDouble();
-
-          // ئەگەر نرخی کڕینی نەنووسیبوو، با وەسڵی کۆمپانیاکە بە نرخی کۆن حیساب بکرێت
-          if (purchasePricePerBox <= 0) {
-            invoicePurchasePrice = oldPurchasePrice;
-          }
-
-          // 👈 چارەسەرە زێڕینەکە: بۆ کۆگا، هەمیشە نرخە بەرزەکە هەڵدەبژێرێت بۆ ئەوەی قەت زەرەر نەکەیت
-          inventoryPurchasePrice = invoicePurchasePrice > oldPurchasePrice
-              ? invoicePurchasePrice
-              : oldPurchasePrice;
-
-          if (salePricePerBox <= 0) {
-            inventorySalePrice = oldSalePrice;
-          } else {
-            inventorySalePrice =
-                salePricePerBox > oldSalePrice ? salePricePerBox : oldSalePrice;
-          }
-
+          // ئەگەر سەد لە سەد هەموو شتێک یەک بوو، تەنها بڕەکەیان کۆدەکاتەوە
           await txn.rawUpdate(
-              'UPDATE medicines SET totalStrips = totalStrips + ?, purchasePrice = ?, price = ?, company = ?, stripsPerBox = ?, name = ? WHERE id = ?',
+              'UPDATE medicines SET totalStrips = totalStrips + ?, company = ?, stripsPerBox = ?, name = ? WHERE id = ?',
               [
                 totalNewStrips,
-                inventoryPurchasePrice,
-                roundToNearest250(inventorySalePrice),
-                companyName, // 👈 ئەپدەیتکردنی ناوی کۆمپانیا
-                per, // 👈 ئەپدەیتکردنی شیت بۆ ئەوەی سەرمایە ڕاست دەربچێت
-                cleanName, // 👈 بۆ ئەوەی ئەگەر ناوی دەرمانەکەشی چاک کرد سەیڤ بێت
+                companyName,
+                per,
+                cleanName,
                 existing.first['id']
               ]);
         } else {
+          // ئەگەر نرخەکەی یان بەروارەکەی جیاواز بوو، وەک وەجبەیەکی سەربەخۆ خەزنی دەکات!
           await txn.insert('medicines', {
             'name': cleanName,
             'scientificName': sciNameC.text.trim(),
             'company': companyName,
-            'purchasePrice': inventoryPurchasePrice,
-            'price': roundToNearest250(inventorySalePrice),
+            'purchasePrice': purchasePricePerBox,
+            'price': roundedSalePrice,
             'totalStrips': totalNewStrips,
             'stripsPerBox': per,
             'barcode': cleanBarcode,
@@ -540,7 +519,7 @@ class _AddMedicineScreenState extends State<AddMedicineScreen> {
           });
         }
 
-       
+        // ==========================================
         // ٢. لۆجیکی دارایی و ژمێریاری (Accounting)
         // ==========================================
         double pricePerStrip = invoicePurchasePrice / per;
@@ -604,7 +583,7 @@ class _AddMedicineScreenState extends State<AddMedicineScreen> {
                 'amount': paidAmount,
                 'date': date
               });
-              // 🚀 ئێرە شوێنی سڕینەوەکەیە! ئەو کۆدەی پارەی لە (transactions) دەردەکرد بەتەواوی سڕایەوە.
+              // 🚀 سڕینەوە لە سندوق وەک خۆی پارێزراوە
             }
           }
         }
